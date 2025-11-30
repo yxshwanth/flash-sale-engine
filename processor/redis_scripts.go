@@ -4,6 +4,7 @@ package main
 // Returns {success: 0|1, stock: int} where:
 //   - success=0: Item sold out (stock < 0), inventory already refunded
 //   - success=1: Inventory reserved successfully
+//
 // This script ensures DECR and conditional refund are atomic, preventing race conditions
 // Edge cases handled:
 //   - Missing key: DECR on non-existent key initializes to -1, then refunds to 0
@@ -35,6 +36,7 @@ end
 // Returns {success: 0|1, new_stock: int} where:
 //   - success=1: Refund successful
 //   - success=0: Invalid refund amount
+//
 // Edge cases handled:
 //   - Missing key: INCRBY on non-existent key initializes to refund_amount
 //   - Invalid amount: Returns 0 if amount is nil or <= 0
