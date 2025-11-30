@@ -3,9 +3,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-# Build both binaries
-RUN go build -o gateway-bin ./gateway/main.go
-RUN go build -o processor-bin ./processor/main.go
+# Build both binaries (build entire packages, not single files)
+RUN go build -o gateway-bin ./gateway
+RUN go build -o processor-bin ./processor
 
 FROM alpine:latest
 WORKDIR /root/
