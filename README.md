@@ -58,18 +58,45 @@ A **production-ready** high-concurrency distributed system for handling flash sa
 ### Prerequisites
 
 - Docker and Docker Compose
-- Go 1.22+ (optional, for local development)
+- Go 1.23+ (optional, for local development)
+- Make (optional, for Mac/Linux users - see Makefile commands)
 
 ### 1. Clone and Start
 
+**Option A: Using Make (Mac/Linux)**
+```bash
+git clone <your-repo-url>
+cd flash-sale-engine
+make build    # Build Docker images
+make up       # Start all services
+make seed     # Seed inventory (100 items for item_id '101')
+```
+
+**Option B: Using Docker Compose**
 ```bash
 git clone <your-repo-url>
 cd flash-sale-engine
 docker-compose up -d --build
+docker exec flash-sale-engine-redis-1 redis-cli SET inventory:101 100
+```
+
+**Option C: Using PowerShell (Windows)**
+```powershell
+git clone <your-repo-url>
+cd flash-sale-engine
+docker-compose up -d --build
+docker exec flash-sale-engine-redis-1 redis-cli SET inventory:101 100
 ```
 
 ### 2. Seed Inventory
 
+**Using Make:**
+```bash
+make seed                    # Default: 100 items for item_id '101'
+make seed-item ITEM=102 QTY=50  # Custom item and quantity
+```
+
+**Using Docker:**
 ```bash
 docker exec flash-sale-engine-redis-1 redis-cli SET inventory:101 100
 ```
@@ -595,8 +622,9 @@ flash-sale-engine/
 │   └── apps.yaml            # Gateway, Processor
 ├── Dockerfile               # Multi-stage build for both services
 ├── docker-compose.yml       # Local development setup
+├── Makefile                 # Make commands for Mac/Linux users
 ├── go.mod                   # Go module dependencies
-├── test-all-features.ps1    # Comprehensive test suite
+├── test-all-features.ps1    # Comprehensive test suite (PowerShell)
 ├── README.md                # This file
 ├── TESTING.md               # Detailed testing guide
 └── OPERATIONS.md            # Operations runbook
@@ -604,14 +632,52 @@ flash-sale-engine/
 
 ## 🔧 Development
 
-**Build Locally:**
+### Using Makefile (Mac/Linux)
+
+The project includes a `Makefile` with convenient commands:
+
 ```bash
-go mod download
-go build -o gateway-bin ./gateway/main.go
-go build -o processor-bin ./processor/main.go
+make help              # Show all available commands
+make build             # Build Docker images
+make up                # Start all services
+make down              # Stop all services
+make logs              # View logs from all services
+make logs-gateway      # View gateway logs
+make logs-processor    # View processor logs
+make test              # Run comprehensive test suite
+make seed              # Seed inventory (100 items for item_id '101')
+make health            # Check service health
+make metrics           # View Prometheus metrics
+make inventory ITEM=101 # Check inventory for specific item
+make order-status REQ_ID=test-123 # Check order status
+make clean             # Stop services and remove containers
+make rebuild           # Rebuild and restart services
+make test-order        # Send a test order
+make test-idempotency  # Test idempotency (send same request twice)
 ```
 
-**Run Locally (requires Redis and Kafka):**
+### Build Locally
+
+**Using Make:**
+```bash
+make build
+```
+
+**Manual Build:**
+```bash
+go mod download
+go build -o gateway-bin ./gateway
+go build -o processor-bin ./processor
+```
+
+### Run Locally (requires Redis and Kafka)
+
+**Using Docker Compose:**
+```bash
+make up  # or: docker-compose up -d
+```
+
+**Manual Run:**
 ```bash
 # Terminal 1: Gateway
 REDIS_ADDR=localhost:6379 KAFKA_ADDR=localhost:9092 ./gateway-bin
