@@ -25,10 +25,10 @@ jobs:
       run: go mod download
     
     - name: Build Gateway
-      run: go build -v ./gateway
+      run: go build -v -o gateway-bin ./gateway
     
     - name: Build Processor
-      run: go build -v ./processor
+      run: go build -v -o processor-bin ./processor
     
     - name: Run tests (if any)
       run: go test ./... || true
