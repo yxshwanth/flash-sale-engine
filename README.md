@@ -29,7 +29,7 @@ A high-concurrency distributed system for handling flash sales with **idempotenc
                   ┌─────────┐                        ┌─────────┐
                   │  Redis  │                        │   DLQ   │
                   │(Idempot │                        │(Failed  │
-                  │  ency)   │                        │ Orders) │
+                  │  ency)  │                        │ Orders) │
                   └─────────┘                        └─────────┘
 ```
 

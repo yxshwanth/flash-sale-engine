@@ -54,6 +54,8 @@ services:
     build: .
     image: flash-engine:latest
     command: ["./processor-bin"]
+    ports:
+      - "9090:9090"  # Prometheus metrics endpoint
     depends_on:
       redis:
         condition: service_healthy
