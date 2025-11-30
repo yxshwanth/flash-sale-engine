@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	redisClient    *redis.Client
-	producer       *CircuitBreaker
-	rateLimiter    *RateLimiter
-	logger         *logrus.Logger
-	metrics        *common.GatewayMetrics
-	ctx            = context.Background()
+	redisClient *redis.Client
+	producer    *CircuitBreaker
+	rateLimiter *RateLimiter
+	logger      *logrus.Logger
+	metrics     *common.GatewayMetrics
+	ctx         = context.Background()
 )
 
 type OrderRequest struct {
@@ -80,7 +80,7 @@ func main() {
 	rateLimiter = NewRateLimiter(redisClient, maxRequests, windowSize)
 	logger.WithFields(map[string]interface{}{
 		"max_requests": maxRequests,
-		"window_size": windowSize.String(),
+		"window_size":  windowSize.String(),
 	}).Info("Rate limiter initialized")
 
 	// Initialize Prometheus metrics
@@ -136,14 +136,14 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 	// Add request timeout context (30 seconds)
 	reqCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	
+
 	// Track processing time for metrics
 	startTime := time.Now()
-	
+
 	// Generate correlation ID for request tracing
 	correlationID := uuid.New().String()
 	logEntry := common.WithEvent(correlationID, "order_received")
-	
+
 	// Log request details
 	logEntry.WithFields(map[string]interface{}{
 		"method":      r.Method,
@@ -161,7 +161,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		logEntry.WithError(err).Warn("Invalid request body")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Invalid request body",
+			"error":          "Invalid request body",
 			"correlation_id": correlationID,
 		})
 		return
@@ -183,10 +183,10 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		remaining, _ := rateLimiter.GetRemainingRequests(reqCtx, order.UserID)
 		rateLimitWindowDuration := getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":                "Rate limit exceeded",
-			"correlation_id":       correlationID,
-			"retry_after_seconds":  int(rateLimitWindowDuration.Seconds()),
-			"remaining_requests":   remaining,
+			"error":               "Rate limit exceeded",
+			"correlation_id":      correlationID,
+			"retry_after_seconds": int(rateLimitWindowDuration.Seconds()),
+			"remaining_requests":  remaining,
 		})
 		return
 	}
@@ -198,8 +198,8 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		logEntry.WithField("errors", validationErrors).Warn("Validation failed")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": "Validation failed",
-			"errors": validationErrors,
+			"error":          "Validation failed",
+			"errors":         validationErrors,
 			"correlation_id": correlationID,
 		})
 		return
@@ -221,7 +221,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		logEntry.WithError(err).Error("Redis idempotency check failed")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Internal server error",
+			"error":          "Internal server error",
 			"correlation_id": correlationID,
 		})
 		return
@@ -231,7 +231,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		logEntry.Warn("Duplicate request detected")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Duplicate Request Detected",
+			"error":          "Duplicate Request Detected",
 			"correlation_id": correlationID,
 		})
 		return
@@ -240,7 +240,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 	// Update order status to PROCESSING when queued
 	orderStatusKey := "order_status:" + order.RequestID
 	redisClient.Set(reqCtx, orderStatusKey, "PROCESSING", 30*time.Minute)
-	
+
 	// Publish order to Kafka for async processing
 	// Include correlation ID in message headers for request tracing across services
 	orderBytes, _ := json.Marshal(order)
@@ -262,7 +262,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		redisClient.Del(reqCtx, "idempotency:"+order.RequestID)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Service temporarily unavailable",
+			"error":          "Service temporarily unavailable",
 			"correlation_id": correlationID,
 		})
 		return
@@ -277,7 +277,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		redisClient.Del(reqCtx, "idempotency:"+order.RequestID)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Failed to queue order",
+			"error":          "Failed to queue order",
 			"correlation_id": correlationID,
 		})
 		return
@@ -287,7 +287,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 	processingTime := time.Since(startTime)
 	metrics.OrdersSuccessful.Inc()
 	metrics.RequestDuration.Observe(processingTime.Seconds())
-	
+
 	// Update circuit breaker state metric (0=closed, 1=open, 2=half-open)
 	cbState = producer.State()
 	stateValue := 0.0
@@ -297,17 +297,17 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 		stateValue = 2.0
 	}
 	metrics.CircuitBreakerState.Set(stateValue)
-	
+
 	// Log success with processing time
 	logEntry.WithFields(map[string]interface{}{
 		"processing_time_ms": processingTime.Milliseconds(),
 		"event":              "order_queued",
 	}).Info("Order queued successfully")
-	
+
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":          "Order Queued",
-		"correlation_id":  correlationID,
+		"status":             "Order Queued",
+		"correlation_id":     correlationID,
 		"processing_time_ms": processingTime.Milliseconds(),
 	})
 }
@@ -316,7 +316,7 @@ func handleBuy(w http.ResponseWriter, r *http.Request) {
 // Returns 200 OK if all services are healthy, 503 Service Unavailable otherwise
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Check Redis connection health with timeout
 	healthCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -336,10 +336,9 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "healthy",
-		"redis":  redisHealthy,
-		"kafka":  kafkaHealthy,
+		"status":                "healthy",
+		"redis":                 redisHealthy,
+		"kafka":                 kafkaHealthy,
 		"circuit_breaker_state": producer.State().String(),
 	})
 }
-

@@ -14,13 +14,13 @@ import (
 // CircuitBreaker wraps Kafka producer with circuit breaker pattern
 // Implements exponential backoff for timeout calculation
 type CircuitBreaker struct {
-	producer    sarama.SyncProducer
-	cb          *gobreaker.CircuitBreaker
-	mu          sync.RWMutex
-	lastError   error
-	lastErrorAt time.Time
-	baseTimeout time.Duration
-	maxTimeout  time.Duration
+	producer     sarama.SyncProducer
+	cb           *gobreaker.CircuitBreaker
+	mu           sync.RWMutex
+	lastError    error
+	lastErrorAt  time.Time
+	baseTimeout  time.Duration
+	maxTimeout   time.Duration
 	failureCount uint32 // Track consecutive failures for exponential backoff
 }
 
@@ -40,8 +40,8 @@ func NewCircuitBreaker(producer sarama.SyncProducer) *CircuitBreaker {
 	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
 		Name:        "kafka-producer",
 		MaxRequests: uint32(successThreshold), // Allow N requests in half-open state
-		Interval:    60 * time.Second,          // Reset counts after 60 seconds
-		Timeout:     baseTimeout,                // Base timeout (will use exponential backoff)
+		Interval:    60 * time.Second,         // Reset counts after 60 seconds
+		Timeout:     baseTimeout,              // Base timeout (will use exponential backoff)
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			// Open circuit after N consecutive failures
 			return counts.ConsecutiveFailures >= uint32(failureThreshold)
@@ -96,12 +96,12 @@ func (cb *CircuitBreaker) SendMessage(msg *sarama.ProducerMessage) (partition in
 			cb.mu.Unlock()
 			return nil, err
 		}
-		
+
 		// Reset failure count on success
 		cb.mu.Lock()
 		cb.failureCount = 0
 		cb.mu.Unlock()
-		
+
 		return map[string]interface{}{
 			"partition": partition,
 			"offset":    offset,
@@ -128,12 +128,12 @@ func (cb *CircuitBreaker) SendMessage(msg *sarama.ProducerMessage) (partition in
 func (cb *CircuitBreaker) GetTimeout() time.Duration {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
-	
+
 	// Calculate exponential backoff: base * 2^failures
 	// Cap exponent at 10 to prevent overflow (max timeout = base * 1024)
 	exponent := math.Min(float64(cb.failureCount), 10)
 	timeout := time.Duration(float64(cb.baseTimeout) * math.Pow(2, exponent))
-	
+
 	// Cap at maxTimeout
 	if timeout > cb.maxTimeout {
 		return cb.maxTimeout
@@ -157,4 +157,3 @@ func (cb *CircuitBreaker) LastError() error {
 func (cb *CircuitBreaker) Close() error {
 	return cb.producer.Close()
 }
-

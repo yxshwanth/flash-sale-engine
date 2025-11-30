@@ -75,4 +75,3 @@ redis.call('HSET', order_key .. ':meta', 'timestamp', timestamp, 'stock_after', 
 
 return {1, current_stock, 'SUCCESS'}  -- {success, stock, status}
 `
-

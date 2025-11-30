@@ -30,7 +30,7 @@ func NewRateLimiter(redisClient *redis.Client, maxRequests int, windowSize time.
 // Uses Redis sliding window algorithm with INCR and EXPIRE
 func (rl *RateLimiter) Allow(ctx context.Context, userID string) (bool, error) {
 	key := "ratelimit:" + userID
-	
+
 	// Increment counter for this user
 	count, err := rl.redisClient.Incr(ctx, key).Result()
 	if err != nil {
@@ -38,17 +38,17 @@ func (rl *RateLimiter) Allow(ctx context.Context, userID string) (bool, error) {
 		// In production, you might want to fail closed or use local cache
 		return true, err
 	}
-	
+
 	// Set expiration on first request (sliding window)
 	if count == 1 {
 		rl.redisClient.Expire(ctx, key, rl.windowSize)
 	}
-	
+
 	// Check if limit exceeded
 	if count > int64(rl.maxRequests) {
 		return false, nil
 	}
-	
+
 	return true, nil
 }
 
@@ -63,11 +63,10 @@ func (rl *RateLimiter) GetRemainingRequests(ctx context.Context, userID string) 
 	if err != nil {
 		return 0, err
 	}
-	
+
 	remaining := rl.maxRequests - count
 	if remaining < 0 {
 		return 0, nil
 	}
 	return remaining, nil
 }
-

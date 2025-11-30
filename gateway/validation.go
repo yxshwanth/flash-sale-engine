@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	maxUserIDLength   = 100
-	maxItemIDLength   = 100
+	maxUserIDLength    = 100
+	maxItemIDLength    = 100
 	maxRequestIDLength = 200
 	maxAmount          = 1000
 	minAmount          = 1
@@ -109,4 +109,3 @@ func ValidateOrderRequest(order *OrderRequest) []ValidationError {
 
 	return errors
 }
-
