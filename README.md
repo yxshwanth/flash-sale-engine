@@ -8,10 +8,13 @@ A high-concurrency distributed system for handling flash sales with **idempotenc
 
 ## ✨ Features
 
-- **🔄 Idempotency**: Prevents duplicate order processing using Redis SETNX
-- **⚛️ Atomic Inventory**: Race-condition-free stock management using Redis DECR
+- **🔄 Idempotency**: Prevents duplicate order processing using Redis SETNX with 10-minute TTL
+- **⚛️ Atomic Inventory**: Race-condition-free stock management using Redis Lua scripts
 - **📨 Async Processing**: Kafka-based message queue for decoupled processing
-- **🛡️ Fault Tolerance**: Dead Letter Queue (DLQ) for failed orders
+- **🛡️ Fault Tolerance**: Circuit breaker pattern and Dead Letter Queue (DLQ) for failed orders
+- **✅ Input Validation**: Comprehensive validation with clear error messages
+- **📝 Structured Logging**: JSON logs with correlation IDs for request tracing
+- **🏥 Health Checks**: Kubernetes-ready health endpoint
 - **📊 High Concurrency**: Handles thousands of concurrent requests
 
 ## 🏗️ Architecture
@@ -89,11 +92,50 @@ Place an order for a flash sale item.
 }
 ```
 
+**Validation Rules:**
+- `user_id`: Required, alphanumeric/underscore/hyphen, max 100 chars
+- `item_id`: Required, alphanumeric/underscore/hyphen, max 100 chars
+- `amount`: Required, integer between 1 and 1000
+- `request_id`: Required, non-empty, max 200 chars
+
 **Responses:**
 - `202 Accepted`: Order queued successfully
+  ```json
+  {
+    "status": "Order Queued",
+    "correlation_id": "uuid-here"
+  }
+  ```
 - `409 Conflict`: Duplicate request detected (idempotency)
-- `400 Bad Request`: Invalid request body
+- `400 Bad Request`: Validation failed
+  ```json
+  {
+    "error": "Validation failed",
+    "errors": [
+      {"field": "amount", "message": "amount must be at least 1"}
+    ],
+    "correlation_id": "uuid-here"
+  }
+  ```
+- `503 Service Unavailable`: Circuit breaker is open (Kafka unavailable)
 - `500 Internal Server Error`: Server error
+
+### GET `/health`
+
+Health check endpoint for Kubernetes liveness/readiness probes.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "redis": true,
+  "kafka": true,
+  "circuit_breaker_state": "closed"
+}
+```
+
+- `200 OK`: All services healthy
+- `503 Service Unavailable`: One or more services unhealthy
 
 **Example:**
 ```bash
@@ -108,7 +150,7 @@ curl -X POST http://localhost:8080/buy \
 
 **Problem**: User double-clicks or network retries cause duplicate orders.
 
-**Solution**: Redis `SETNX` (Set if Not Exists) with request_id as key.
+**Solution**: Redis `SETNX` (Set if Not Exists) with request_id as key and 10-minute TTL.
 
 ```go
 isNew, err := redisClient.SetNX(ctx, "idempotency:"+order.RequestID, "processing", 10*time.Minute).Result()
@@ -130,26 +172,64 @@ if !isNew {
 
 **Problem**: Race conditions when multiple users buy simultaneously.
 
-**Solution**: Redis `DECR` is atomic - no race conditions possible.
+**Solution**: Redis Lua scripts ensure atomic check-and-refund operations.
 
 ```go
-stock, err := redisClient.Decr(ctx, "inventory:"+order.ItemID).Result()
-if stock < 0 {
-    redisClient.Incr(ctx, "inventory:"+order.ItemID) // Refund
-    return // Sold out
-}
+// Lua script atomically decrements and refunds if sold out
+result, err := checkInventoryScript.Run(ctx, redisClient, []string{inventoryKey}).Result()
+// Returns {success: 0|1, stock: int} - all atomic
 ```
 
-### 3. Fault Tolerance (DLQ)
+**Benefits:**
+- No race conditions possible (Lua scripts are atomic)
+- Automatic refund if sold out
+- No partial failures
+
+### 3. Circuit Breaker Pattern
+
+**Problem**: Kafka failures can cascade and crash the gateway.
+
+**Solution**: Circuit breaker opens after 5 consecutive failures, preventing cascading failures.
+
+```go
+// Circuit breaker wraps Kafka producer
+producer = NewCircuitBreaker(rawProducer)
+// Returns 503 Service Unavailable when circuit is open
+```
+
+### 4. Input Validation
+
+**Problem**: Invalid inputs can cause errors or security issues.
+
+**Solution**: Comprehensive validation with clear error messages.
+
+- Validates user_id, item_id format (alphanumeric, underscore, hyphen)
+- Validates amount (1-1000 range)
+- Validates request_id (required, non-empty)
+- Returns 400 Bad Request with detailed error messages
+
+### 5. Structured Logging
+
+**Problem**: Hard to trace requests across services.
+
+**Solution**: JSON logs with correlation IDs for request tracing.
+
+- Gateway generates UUID correlation IDs
+- Correlation IDs passed via Kafka headers
+- All logs include correlation_id field
+- Enables tracing requests across gateway → Kafka → processor
+
+### 6. Fault Tolerance (DLQ)
 
 **Problem**: Payment service fails, but order is already processed.
 
-**Solution**: Failed orders moved to Dead Letter Queue, inventory refunded.
+**Solution**: Failed orders moved to Dead Letter Queue, inventory refunded atomically.
 
 ```go
 if paymentFails {
-    redisClient.Incr(ctx, "inventory:"+order.ItemID) // Refund
-    moveToDLQ(msg, "Payment Timeout")
+    // Refund inventory using Lua script (atomic)
+    refundScript.Run(ctx, redisClient, []string{inventoryKey}, 1)
+    moveToDLQ(msg, "Payment Timeout", correlationID)
 }
 ```
 
@@ -204,39 +284,70 @@ curl -X POST http://localhost:30000/buy \
   -d '{"user_id":"u1","item_id":"101","amount":1,"request_id":"req-123"}'
 ```
 
-## 🧪 Testing Scenarios
+## 🧪 Testing
 
-### Scenario 1: Idempotency Test
+### Quick Test (All Features)
+```powershell
+# Run comprehensive test suite
+.\test-all-features.ps1
+```
+
+Tests cover:
+- ✅ Input validation (missing fields, invalid values)
+- ✅ Idempotency (duplicate request rejection)
+- ✅ Atomic inventory (concurrent orders)
+- ✅ Structured logging (correlation IDs)
+- ✅ Health check endpoint
+- ✅ Sold out handling
+
+### Manual Testing Scenarios
+
+**Scenario 1: Idempotency Test**
 1. Send request with `request_id: "test-123"`
 2. Send same request again
 3. **Expected**: First returns `202`, second returns `409`
 
-### Scenario 2: Concurrent Orders
+**Scenario 2: Concurrent Orders**
 1. Send 100 orders rapidly
 2. Check inventory decreases correctly
 3. **Expected**: No overselling, inventory matches orders
 
-### Scenario 3: Fault Tolerance
+**Scenario 3: Fault Tolerance**
 1. Send orders (10% will simulate payment failure)
 2. Check DLQ for failed orders
 3. **Expected**: Failed orders in DLQ, inventory refunded
+
+**Scenario 4: Circuit Breaker**
+1. Stop Kafka: `docker-compose stop redpanda`
+2. Send 6 requests (will fail)
+3. Check `/health` endpoint - circuit should be "Open"
+4. Restart Kafka: `docker-compose start redpanda`
+5. Wait 30 seconds, check `/health` - circuit should be "Closed"
+
+See [TESTING.md](TESTING.md) for detailed testing guide.
 
 ## 📁 Project Structure
 
 ```
 flash-sale-engine/
 ├── gateway/
-│   └── main.go          # HTTP API (Producer)
+│   ├── main.go              # HTTP API (Producer)
+│   ├── validation.go        # Input validation logic
+│   └── circuit_breaker.go   # Circuit breaker for Kafka producer
 ├── processor/
-│   └── main.go          # Kafka Consumer (Worker)
+│   ├── main.go              # Kafka Consumer (Worker)
+│   └── redis_scripts.go     # Redis Lua scripts for atomic operations
+├── common/
+│   └── logger.go            # Structured logging utilities
 ├── k8s/
 │   ├── infrastructure.yaml  # Redis, Redpanda
 │   └── apps.yaml            # Gateway, Processor
 ├── Dockerfile
 ├── docker-compose.yml
 ├── go.mod
-├── test.ps1             # Automated test script
-└── test-buy.ps1         # Quick buy script
+├── test-all-features.ps1    # Comprehensive test suite
+├── test-buy.ps1             # Quick buy script
+└── TESTING.md               # Detailed testing guide
 ```
 
 ## 🔧 Development
@@ -259,10 +370,13 @@ REDIS_ADDR=localhost:6379 KAFKA_ADDR=localhost:9092 ./processor-bin
 
 ## 📈 Performance Considerations
 
-- **Idempotency Key TTL**: 10 minutes (configurable)
+- **Idempotency Key TTL**: 10 minutes (prevents key accumulation)
+- **Circuit Breaker**: Opens after 5 consecutive failures, 30s timeout
 - **Kafka Topic**: Auto-created in dev mode
-- **Redis Persistence**: Configured for production
+- **Redis Lua Scripts**: Atomic operations prevent race conditions
+- **Structured Logging**: JSON format for easy log aggregation
 - **Concurrency**: Handles 1000+ requests/second
+- **Inventory Operations**: All atomic (no locks needed)
 
 ## 🛠️ Troubleshooting
 
