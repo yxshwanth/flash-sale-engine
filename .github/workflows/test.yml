@@ -1,0 +1,38 @@
+name: Test Flash Sale Engine
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Build Gateway
+      run: go build -o gateway-bin ./gateway/main.go
+    
+    - name: Build Processor
+      run: go build -o processor-bin ./processor/main.go
+    
+    - name: Run Go Vet
+      run: |
+        go vet ./gateway/...
+        go vet ./processor/...
+    
+    - name: Check formatting
+      run: |
+        test -z $(gofmt -s -l gateway/ processor/)
+

@@ -1,0 +1,71 @@
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    command: redis-server
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - flash-sale-network
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --mode dev-container
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+    ports:
+      - "19092:19092"
+      - "18082:18082"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - flash-sale-network
+
+  gateway:
+    build: .
+    image: flash-engine:latest
+    command: ["./gateway-bin"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      - REDIS_ADDR=redis:6379
+      - KAFKA_ADDR=redpanda:9092
+    networks:
+      - flash-sale-network
+
+  processor:
+    build: .
+    image: flash-engine:latest
+    command: ["./processor-bin"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      - REDIS_ADDR=redis:6379
+      - KAFKA_ADDR=redpanda:9092
+    networks:
+      - flash-sale-network
+
+networks:
+  flash-sale-network:
+    driver: bridge
+
