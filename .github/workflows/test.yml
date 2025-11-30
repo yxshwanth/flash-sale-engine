@@ -11,21 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Install dependencies
       run: go mod download
     
     - name: Build Gateway
-      run: go build -o gateway-bin ./gateway/main.go
+      run: go build -o gateway-bin ./gateway
     
     - name: Build Processor
-      run: go build -o processor-bin ./processor/main.go
+      run: go build -o processor-bin ./processor
     
     - name: Run Go Vet
       run: |
